@@ -225,39 +225,39 @@ func collectMetrics() {
 
 			if ticket.DeletedAt != 0 {
 				supportPalTicketDeleted.With(prometheus.Labels{
-					"organization": orgName,
-					"status":       strings.ToLower(ticket.Status.Name),
-					"priority":     strings.ToLower(ticket.Priority.Name),
-					"user":         strings.ToLower(ticket.User.FormattedName),
-					"subject":      ticket.Subject,
+					"client":   orgName,
+					"status":   strings.ToLower(ticket.Status.Name),
+					"priority": strings.ToLower(ticket.Priority.Name),
+					"user":     strings.ToLower(ticket.User.FormattedName),
+					"subject":  ticket.Subject,
 				}).Set(float64(ticket.DeletedAt))
 			}
 
 			if ticket.CreatedAt != 0 {
 				supportPalTicketCreated.With(prometheus.Labels{
-					"organization": orgName,
-					"status":       strings.ToLower(ticket.Status.Name),
-					"priority":     strings.ToLower(ticket.Priority.Name),
-					"user":         strings.ToLower(ticket.User.FormattedName),
-					"subject":      ticket.Subject,
+					"client":   orgName,
+					"status":   strings.ToLower(ticket.Status.Name),
+					"priority": strings.ToLower(ticket.Priority.Name),
+					"user":     strings.ToLower(ticket.User.FormattedName),
+					"subject":  ticket.Subject,
 				}).Set(float64(ticket.CreatedAt))
 			}
 
 			if ticket.UpdatedAt != 0 {
 				supportPalTicketUpdated.With(prometheus.Labels{
-					"organization": orgName,
-					"status":       strings.ToLower(ticket.Status.Name),
-					"priority":     strings.ToLower(ticket.Priority.Name),
-					"user":         strings.ToLower(ticket.User.FormattedName),
-					"subject":      ticket.Subject,
+					"client":   orgName,
+					"status":   strings.ToLower(ticket.Status.Name),
+					"priority": strings.ToLower(ticket.Priority.Name),
+					"user":     strings.ToLower(ticket.User.FormattedName),
+					"subject":  ticket.Subject,
 				}).Set(float64(ticket.UpdatedAt))
 			} else {
 				supportPalTicketUpdated.With(prometheus.Labels{
-					"organization": orgName,
-					"status":       strings.ToLower(ticket.Status.Name),
-					"priority":     strings.ToLower(ticket.Priority.Name),
-					"user":         strings.ToLower(ticket.User.FormattedName),
-					"subject":      ticket.Subject,
+					"client":   orgName,
+					"status":   strings.ToLower(ticket.Status.Name),
+					"priority": strings.ToLower(ticket.Priority.Name),
+					"user":     strings.ToLower(ticket.User.FormattedName),
+					"subject":  ticket.Subject,
 				}).Set(float64(ticket.CreatedAt))
 			}
 		}
