@@ -13,3 +13,8 @@ Define the following environment variables:
 supportpal_ticket_updated{client="one-org",priority="low",status="open",subject="One Subject",user="one-user"} 1.653431774e+09
 supportpal_ticket_created{client="one-org",priority="low",status="open",subject="One Subject",user="one-user"} 1.653431774e+09
 ````
+
+## Authors
+
+- José Carlos García
+- BrutalSys SL <https://brutal.systems>
