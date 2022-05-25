@@ -208,8 +208,8 @@ func collectMetrics() {
 		for _, ticket := range tickets {
 			orgName := "no-org"
 
-			// If ticket has more than one year since last update, ignore it
-			if time.Now().Unix()-ticket.UpdatedAt > 31536000 {
+			// If ticket has more than one year since last creation, ignore it
+			if time.Now().Unix()-ticket.CreatedAt > 31536000 {
 				continue
 			}
 
