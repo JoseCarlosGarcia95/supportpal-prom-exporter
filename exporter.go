@@ -60,10 +60,11 @@ type Ticket struct {
 		FormattedName  string `json:"formatted_name"`
 		OrganizationID int    `json:"organisation_id"`
 	}
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
-	DeletedAt   int64  `json:"deleted_at"`
-	OperatorURL string `json:"operator_url"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at"`
+	DeletedAt    int64  `json:"deleted_at"`
+	ResolvedTime int64  `json:"resolved_time"`
+	OperatorURL  string `json:"operator_url"`
 }
 
 // respListTickets represents the response body for listing tickets
@@ -182,6 +183,11 @@ var (
 		Name: "supportpal_ticket_deleted",
 		Help: "Last time a ticket was deleted",
 	}, []string{"client", "status", "priority", "user", "subject"})
+
+	supportPalTicketResolved = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "supportpal_ticket_resolved",
+		Help: "Last time a ticket was resolved",
+	}, []string{"client", "status", "priority", "user", "subject"})
 )
 
 func collectMetrics() {
@@ -259,6 +265,16 @@ func collectMetrics() {
 					"user":     strings.ToLower(ticket.User.FormattedName),
 					"subject":  ticket.Subject,
 				}).Set(float64(ticket.CreatedAt))
+			}
+
+			if ticket.ResolvedTime != 0 {
+				supportPalTicketResolved.With(prometheus.Labels{
+					"client":   orgName,
+					"status":   strings.ToLower(ticket.Status.Name),
+					"priority": strings.ToLower(ticket.Priority.Name),
+					"user":     strings.ToLower(ticket.User.FormattedName),
+					"subject":  ticket.Subject,
+				}).Set(float64(ticket.ResolvedTime))
 			}
 		}
 
