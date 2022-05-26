@@ -77,7 +77,7 @@ type respListTickets struct {
 
 // listTickets is a helper function to list tickets with start and limit
 func listTickets(start, limit int) (*respListTickets, error) {
-	url := "/api/ticket/ticket?start=" + strconv.Itoa(start) + "&limit=" + strconv.Itoa(limit)
+	url := "/api/ticket/ticket?order_direction=desc&start=" + strconv.Itoa(start) + "&limit=" + strconv.Itoa(limit)
 	resp, err := requestAPI("GET", url, nil)
 
 	if err != nil {
@@ -140,17 +140,8 @@ func fetchAllTickets() ([]*Ticket, error) {
 	var tickets []*Ticket
 	start := 0
 	limit := 2000
-
-	total := 0
-
 	for {
-		if total-start < limit && total > 0 {
-			limit = total - start
-		}
-
 		ticketsResponse, err := listTickets(start, limit)
-
-		total = ticketsResponse.Count
 
 		if err != nil {
 			return nil, err
@@ -172,22 +163,22 @@ var (
 	supportPalTicketUpdated = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "supportpal_ticket_updated",
 		Help: "Last time a ticket was updated",
-	}, []string{"client", "status", "priority", "user", "subject"})
+	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
 
 	supportPalTicketCreated = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "supportpal_ticket_created",
 		Help: "Last time a ticket was created",
-	}, []string{"client", "status", "priority", "user", "subject"})
+	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
 
 	supportPalTicketDeleted = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "supportpal_ticket_deleted",
 		Help: "Last time a ticket was deleted",
-	}, []string{"client", "status", "priority", "user", "subject"})
+	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
 
 	supportPalTicketResolved = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "supportpal_ticket_resolved",
 		Help: "Last time a ticket was resolved",
-	}, []string{"client", "status", "priority", "user", "subject"})
+	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
 )
 
 func collectMetrics() {
@@ -205,13 +196,18 @@ func collectMetrics() {
 
 		log.Println("List all tickets...done")
 
-		for _, ticket := range tickets {
-			orgName := "no-org"
+		log.Println("Cleaning old metrics...")
 
-			// If ticket has more than one year since last creation, ignore it
-			if time.Now().Unix()-ticket.CreatedAt > 31536000 {
+		supportPalTicketCreated.Reset()
+		supportPalTicketUpdated.Reset()
+		supportPalTicketDeleted.Reset()
+
+		for _, ticket := range tickets {
+			// ignore tickets oldes than 1 year
+			if time.Unix(ticket.CreatedAt, 0).AddDate(1, 0, 0).Before(time.Now()) {
 				continue
 			}
+			orgName := "no-org"
 
 			if ticket.User.OrganizationID != 0 {
 				org, err := getOrganization(ticket.User.OrganizationID)
@@ -231,49 +227,54 @@ func collectMetrics() {
 
 			if ticket.DeletedAt != 0 {
 				supportPalTicketDeleted.With(prometheus.Labels{
-					"client":   orgName,
-					"status":   strings.ToLower(ticket.Status.Name),
-					"priority": strings.ToLower(ticket.Priority.Name),
-					"user":     strings.ToLower(ticket.User.FormattedName),
-					"subject":  ticket.Subject,
+					"client":     orgName,
+					"status":     strings.ToLower(ticket.Status.Name),
+					"priority":   strings.ToLower(ticket.Priority.Name),
+					"user":       strings.ToLower(ticket.User.FormattedName),
+					"subject":    ticket.Subject,
+					"ticket_url": ticket.OperatorURL,
 				}).Set(float64(ticket.DeletedAt))
 			}
 
 			if ticket.CreatedAt != 0 {
 				supportPalTicketCreated.With(prometheus.Labels{
-					"client":   orgName,
-					"status":   strings.ToLower(ticket.Status.Name),
-					"priority": strings.ToLower(ticket.Priority.Name),
-					"user":     strings.ToLower(ticket.User.FormattedName),
-					"subject":  ticket.Subject,
+					"client":     orgName,
+					"status":     strings.ToLower(ticket.Status.Name),
+					"priority":   strings.ToLower(ticket.Priority.Name),
+					"user":       strings.ToLower(ticket.User.FormattedName),
+					"subject":    ticket.Subject,
+					"ticket_url": ticket.OperatorURL,
 				}).Set(float64(ticket.CreatedAt))
 			}
 
 			if ticket.UpdatedAt != 0 {
 				supportPalTicketUpdated.With(prometheus.Labels{
-					"client":   orgName,
-					"status":   strings.ToLower(ticket.Status.Name),
-					"priority": strings.ToLower(ticket.Priority.Name),
-					"user":     strings.ToLower(ticket.User.FormattedName),
-					"subject":  ticket.Subject,
+					"client":     orgName,
+					"status":     strings.ToLower(ticket.Status.Name),
+					"priority":   strings.ToLower(ticket.Priority.Name),
+					"user":       strings.ToLower(ticket.User.FormattedName),
+					"subject":    ticket.Subject,
+					"ticket_url": ticket.OperatorURL,
 				}).Set(float64(ticket.UpdatedAt))
 			} else {
 				supportPalTicketUpdated.With(prometheus.Labels{
-					"client":   orgName,
-					"status":   strings.ToLower(ticket.Status.Name),
-					"priority": strings.ToLower(ticket.Priority.Name),
-					"user":     strings.ToLower(ticket.User.FormattedName),
-					"subject":  ticket.Subject,
+					"client":     orgName,
+					"status":     strings.ToLower(ticket.Status.Name),
+					"priority":   strings.ToLower(ticket.Priority.Name),
+					"user":       strings.ToLower(ticket.User.FormattedName),
+					"subject":    ticket.Subject,
+					"ticket_url": ticket.OperatorURL,
 				}).Set(float64(ticket.CreatedAt))
 			}
 
 			if ticket.ResolvedTime != 0 {
 				supportPalTicketResolved.With(prometheus.Labels{
-					"client":   orgName,
-					"status":   strings.ToLower(ticket.Status.Name),
-					"priority": strings.ToLower(ticket.Priority.Name),
-					"user":     strings.ToLower(ticket.User.FormattedName),
-					"subject":  ticket.Subject,
+					"client":     orgName,
+					"status":     strings.ToLower(ticket.Status.Name),
+					"priority":   strings.ToLower(ticket.Priority.Name),
+					"user":       strings.ToLower(ticket.User.FormattedName),
+					"subject":    ticket.Subject,
+					"ticket_url": ticket.OperatorURL,
 				}).Set(float64(ticket.ResolvedTime))
 			}
 		}
