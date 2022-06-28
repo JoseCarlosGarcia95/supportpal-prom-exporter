@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gosimple/slug"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -65,6 +66,12 @@ type Ticket struct {
 	DeletedAt    int64  `json:"deleted_at"`
 	ResolvedTime int64  `json:"resolved_time"`
 	OperatorURL  string `json:"operator_url"`
+	FrontendURL  string `json:"frontend_url"`
+	CustomFields []*struct {
+		ID      int    `json:"id"`
+		FieldID int    `json:"field_id"`
+		Value   string `json:"value"`
+	} `json:"customfields"`
 }
 
 // respListTickets represents the response body for listing tickets
@@ -135,6 +142,45 @@ func getOrganization(id int) (*respGetOrganization, error) {
 	return &organization, nil
 }
 
+// respGetCustomField represents the response body for getting a custom field
+type respGetCustomField struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Data    struct {
+		ID      int    `json:"id"`
+		Name    string `json:"name"`
+		Type    int    `json:"type"`
+		Options []struct {
+			ID    int    `json:"id"`
+			Value string `json:"value"`
+		} `json:"options"`
+	} `json:"data"`
+}
+
+var customFieldCache = make(map[int]*respGetCustomField)
+
+// getCustomField is a helper function to get a custom field
+func getCustomField(id int) (*respGetCustomField, error) {
+	if ok := customFieldCache[id]; ok != nil {
+		return ok, nil
+	}
+	url := "/api/ticket/customfield/" + strconv.Itoa(id)
+	resp, err := requestAPI("GET", url, nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var customField respGetCustomField
+	err = json.Unmarshal(resp, &customField)
+
+	if err == nil {
+		customFieldCache[id] = &customField
+	}
+
+	return &customField, nil
+}
+
 // fetchAllTickets is a helper function to fetch all tickets and return a slice of Ticket
 func fetchAllTickets() ([]*Ticket, error) {
 	var tickets []*Ticket
@@ -159,26 +205,15 @@ func fetchAllTickets() ([]*Ticket, error) {
 	return tickets, nil
 }
 
+// CommonLabels is a map of labels that are common to all tickets
+var CommonLabels = []string{"client", "status", "priority", "user", "subject", "ticket_url", "frontend_url"}
+
 var (
-	supportPalTicketUpdated = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "supportpal_ticket_updated",
-		Help: "Last time a ticket was updated",
-	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
-
-	supportPalTicketCreated = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "supportpal_ticket_created",
-		Help: "Last time a ticket was created",
-	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
-
-	supportPalTicketDeleted = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "supportpal_ticket_deleted",
-		Help: "Last time a ticket was deleted",
-	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
-
-	supportPalTicketResolved = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "supportpal_ticket_resolved",
-		Help: "Last time a ticket was resolved",
-	}, []string{"client", "status", "priority", "user", "subject", "ticket_url"})
+	supportPalTicketUpdated  = &prometheus.GaugeVec{}
+	supportPalTicketCreated  = &prometheus.GaugeVec{}
+	supportPalTicketDeleted  = &prometheus.GaugeVec{}
+	supportPalTicketResolved = &prometheus.GaugeVec{}
+	globaLabels              = []string{}
 )
 
 func collectMetrics() {
@@ -207,7 +242,15 @@ func collectMetrics() {
 			if time.Unix(ticket.CreatedAt, 0).AddDate(1, 0, 0).Before(time.Now()) {
 				continue
 			}
-			orgName := "no-org"
+
+			labels := prometheus.Labels{
+				"status":       strings.ToLower(ticket.Status.Name),
+				"priority":     strings.ToLower(ticket.Priority.Name),
+				"user":         strings.ToLower(ticket.User.FormattedName),
+				"subject":      ticket.Subject,
+				"ticket_url":   ticket.OperatorURL,
+				"frontend_url": ticket.FrontendURL,
+			}
 
 			if ticket.User.OrganizationID != 0 {
 				org, err := getOrganization(ticket.User.OrganizationID)
@@ -217,73 +260,138 @@ func collectMetrics() {
 					continue
 				}
 
+				orgName := ""
 				if org.Data != nil {
 					orgName = org.Data.Name
 				}
 
 				orgName = strings.Replace(orgName, " ", "", -1)
 				orgName = strings.ToLower(orgName)
+
+				labels["client"] = orgName
+			}
+
+			for _, customField := range ticket.CustomFields {
+				cField, err := getCustomField(customField.FieldID)
+
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+
+				name := slug.Make(cField.Data.Name)
+				name = strings.ReplaceAll(name, "-", "_")
+				value := customField.Value
+
+				if cField.Data.Type == 7 {
+					for _, option := range cField.Data.Options {
+						nVal, _ := strconv.Atoi(value)
+						if option.ID == nVal {
+							value = slug.Make(option.Value)
+							break
+						}
+					}
+				}
+
+				labels[name] = value
+			}
+
+			for _, label := range globaLabels {
+				if _, ok := labels[label]; !ok {
+					labels[label] = ""
+				}
 			}
 
 			if ticket.DeletedAt != 0 {
-				supportPalTicketDeleted.With(prometheus.Labels{
-					"client":     orgName,
-					"status":     strings.ToLower(ticket.Status.Name),
-					"priority":   strings.ToLower(ticket.Priority.Name),
-					"user":       strings.ToLower(ticket.User.FormattedName),
-					"subject":    ticket.Subject,
-					"ticket_url": ticket.OperatorURL,
-				}).Set(float64(ticket.DeletedAt))
+				supportPalTicketDeleted.With(labels).Set(float64(ticket.DeletedAt))
 			}
 
 			if ticket.CreatedAt != 0 {
-				supportPalTicketCreated.With(prometheus.Labels{
-					"client":     orgName,
-					"status":     strings.ToLower(ticket.Status.Name),
-					"priority":   strings.ToLower(ticket.Priority.Name),
-					"user":       strings.ToLower(ticket.User.FormattedName),
-					"subject":    ticket.Subject,
-					"ticket_url": ticket.OperatorURL,
-				}).Set(float64(ticket.CreatedAt))
+				supportPalTicketCreated.With(labels).Set(float64(ticket.CreatedAt))
 			}
 
 			if ticket.UpdatedAt != 0 {
-				supportPalTicketUpdated.With(prometheus.Labels{
-					"client":     orgName,
-					"status":     strings.ToLower(ticket.Status.Name),
-					"priority":   strings.ToLower(ticket.Priority.Name),
-					"user":       strings.ToLower(ticket.User.FormattedName),
-					"subject":    ticket.Subject,
-					"ticket_url": ticket.OperatorURL,
-				}).Set(float64(ticket.UpdatedAt))
+				supportPalTicketUpdated.With(labels).Set(float64(ticket.UpdatedAt))
 			} else {
-				supportPalTicketUpdated.With(prometheus.Labels{
-					"client":     orgName,
-					"status":     strings.ToLower(ticket.Status.Name),
-					"priority":   strings.ToLower(ticket.Priority.Name),
-					"user":       strings.ToLower(ticket.User.FormattedName),
-					"subject":    ticket.Subject,
-					"ticket_url": ticket.OperatorURL,
-				}).Set(float64(ticket.CreatedAt))
+				supportPalTicketUpdated.With(labels).Set(float64(ticket.CreatedAt))
 			}
 
 			if ticket.ResolvedTime != 0 {
-				supportPalTicketResolved.With(prometheus.Labels{
-					"client":     orgName,
-					"status":     strings.ToLower(ticket.Status.Name),
-					"priority":   strings.ToLower(ticket.Priority.Name),
-					"user":       strings.ToLower(ticket.User.FormattedName),
-					"subject":    ticket.Subject,
-					"ticket_url": ticket.OperatorURL,
-				}).Set(float64(ticket.ResolvedTime))
+				supportPalTicketResolved.With(labels).Set(float64(ticket.ResolvedTime))
 			}
 		}
 
 		time.Sleep(time.Duration(60) * time.Second)
 	}
 }
+
+func initializeMetrics() {
+	log.Println("Initializing metrics...")
+	tickets, err := fetchAllTickets()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Copy commonLabels to labels
+	globaLabels = make([]string, len(CommonLabels))
+	for k, v := range CommonLabels {
+		globaLabels[k] = v
+	}
+
+	for _, ticket := range tickets {
+		for _, customField := range ticket.CustomFields {
+			cField, err := getCustomField(customField.FieldID)
+
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+
+			name := slug.Make(cField.Data.Name)
+			name = strings.ReplaceAll(name, "-", "_")
+			found := false
+
+			for _, v := range globaLabels {
+				if v == name {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				globaLabels = append(globaLabels, name)
+			}
+		}
+	}
+
+	// Create metrics
+	supportPalTicketCreated = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "supportpal_ticket_created",
+		Help: "Last time a ticket was created",
+	}, globaLabels)
+
+	supportPalTicketUpdated = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "supportpal_ticket_updated",
+		Help: "Last time a ticket was updated",
+	}, globaLabels)
+
+	supportPalTicketDeleted = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "supportpal_ticket_deleted",
+		Help: "Last time a ticket was deleted",
+	}, globaLabels)
+
+	supportPalTicketResolved = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "supportpal_ticket_resolved",
+		Help: "Last time a ticket was resolved",
+	}, globaLabels)
+
+	log.Println("Metrics initialized.")
+}
+
 func main() {
 
+	initializeMetrics()
 	go collectMetrics()
 	http.Handle("/metrics", promhttp.Handler())
 	http.ListenAndServe(":20000", nil)
