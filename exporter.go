@@ -185,7 +185,7 @@ func getCustomField(id int) (*respGetCustomField, error) {
 func fetchAllTickets() ([]*Ticket, error) {
 	var tickets []*Ticket
 	start := 0
-	limit := 2000
+	limit := 100
 	for {
 		ticketsResponse, err := listTickets(start, limit)
 
