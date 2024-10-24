@@ -1,6 +1,6 @@
 module github.com/JoseCarlosGarcia95/supportpal-prom-exporter
 
-go 1.18
+go 1.23
 
 require (
 	github.com/gosimple/slug v1.12.0
