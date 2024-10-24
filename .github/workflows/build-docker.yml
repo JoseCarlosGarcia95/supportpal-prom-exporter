@@ -16,7 +16,6 @@ env:
 jobs:
   build-docker-image:
     runs-on: ubuntu-latest
-    needs: test
     permissions:
       contents: read
       packages: write
