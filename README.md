@@ -17,5 +17,4 @@ supportpal_ticket_resolved{client="one-org",priority="low",status="open",subject
 
 ## Authors
 
-- José Carlos García
-- BrutalSys SL <https://brutal.systems>
+- José Carlos García ([Nebux](https://nebux.cloud))
